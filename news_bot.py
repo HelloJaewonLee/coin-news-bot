@@ -1,12 +1,10 @@
 """
 코인 뉴스 텔레그램 봇
-- RSS로 암호화폐 뉴스를 모아서 아직 안 올린 것 중 최신 3개를 텔레그램 채널에 게시
-- 각 뉴스마다: 대표 이미지(스크린샷 대용) + 기사 전문 한국어 번역 + 원본 링크
+- RSS로 암호화폐 뉴스를 모아서 그 시점 기준 가장 최신(이슈가 되는) 기사 1개를 골라 게시
+- 각 뉴스마다: 대표 이미지 + Gemini가 정리한 한국어 요약(헤드라인/핵심 포인트/배경) + 원본 링크
 - 이미 올린 기사는 posted_log.json 에 기록해서 중복 게시 방지
-- 실행: python news_bot.py  (환경변수 TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID 필요)
-
-※ 주의: 기사 전문을 번역해서 그대로 올리면 원문 매체의 저작권을 침해할 소지가 있습니다.
-   개인/소규모 채널 운영이라도 문제가 될 수 있으니, 가능하면 요약 위주로 사용하는 것을 권장합니다.
+- 실행: python news_bot.py
+  필요 환경변수: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GEMINI_API_KEY(선택, 없으면 단순 번역으로 대체)
 """
 
 import os
@@ -27,15 +25,17 @@ RSS_FEEDS = [
     "https://decrypt.co/feed",
 ]
 
-POSTS_PER_RUN = 1
+POSTS_PER_RUN = 1  # 실행 1회당 1개 기사만 게시 (하루 4번 실행)
 STATE_FILE = os.path.join(os.path.dirname(__file__), "posted_log.json")
 MAX_LOG_SIZE = 1000  # 로그 파일이 너무 커지지 않도록 최근 N개만 유지
-TRANSLATE_CHUNK_SIZE = 4000  # 구글 번역 1회 호출 최대 글자 수 여유치
+ARTICLE_TEXT_LIMIT = 8000  # Gemini에 넘길 기사 본문 최대 글자 수
 TELEGRAM_TEXT_LIMIT = 4000  # 텔레그램 메시지 1개 최대 글자 수 여유치
 TELEGRAM_CAPTION_LIMIT = 1000  # 텔레그램 사진 캡션 최대 글자 수 여유치
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GEMINI_MODEL = "gemini-2.5-flash"
 
 KST = timezone(timedelta(hours=9))
 
@@ -74,6 +74,7 @@ def fetch_all_entries():
                         "link": link,
                         "source": source,
                         "published": published,
+                        "summary": e.get("summary", ""),
                     }
                 )
         except Exception as ex:
@@ -82,6 +83,7 @@ def fetch_all_entries():
 
 
 def select_new_entries(entries, posted_links, n):
+    # 가장 최신 기사부터 = 그 시점 기준 가장 화제가 되는 뉴스로 간주
     entries.sort(key=lambda x: x["published"], reverse=True)
     new_entries = [e for e in entries if e["link"] not in posted_links]
     return new_entries[:n]
@@ -94,7 +96,10 @@ def scrape_article(url):
         if not downloaded:
             return None, None
         text = trafilatura.extract(
-            downloaded, include_comments=False, include_tables=False
+            downloaded,
+            include_comments=False,
+            include_tables=False,
+            favor_precision=True,
         )
         image = None
         try:
@@ -107,6 +112,24 @@ def scrape_article(url):
     except Exception as ex:
         print(f"[경고] 기사 본문 수집 실패 ({url}): {ex}")
         return None, None
+
+
+def dedupe_paragraphs(text):
+    """스크래핑 과정에서 같은 문단이 중복 수집되는 것을 제거한다."""
+    if not text:
+        return text
+    seen = set()
+    lines = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            lines.append(line)
+            continue
+        if stripped in seen:
+            continue
+        seen.add(stripped)
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def chunk_text(text, max_len):
@@ -136,15 +159,64 @@ def translate_text(text):
         return text
 
 
-def translate_long_text(text):
-    if not text:
-        return ""
-    chunks = chunk_text(text, TRANSLATE_CHUNK_SIZE)
-    translated = []
-    for c in chunks:
-        translated.append(translate_text(c))
-        time.sleep(1)
-    return "\n".join(translated)
+SUMMARY_PROMPT = """당신은 암호화폐 뉴스 채널의 에디터입니다. 아래 영어 기사를 한국 구독자를 위해 보기 좋게 정리해주세요.
+
+형식(반드시 지켜주세요):
+1번째 줄: 기사 핵심을 압축한 한국어 헤드라인 (이모지 1개 정도, 15~30자)
+빈 줄
+그 다음: "- "로 시작하는 핵심 포인트 3~5개 (숫자·수치는 정확히 살리기, 각 줄은 1문장)
+빈 줄
+마지막: 배경/맥락 설명 1~2문단 (중복 없이 간결하게, 각 문단은 3문장 이내)
+
+주의사항:
+- 마크다운 기호(*, #, ** 등)는 쓰지 말고 순수 텍스트로만 작성
+- 기사에 같은 내용이 반복돼 있으면 한 번만 언급
+- 광고, 관련기사 목록, 탐색 메뉴 같은 내용은 무시
+
+기사 제목: {title}
+
+기사 본문:
+{article_text}
+"""
+
+
+def summarize_with_gemini(title, article_text):
+    if not GEMINI_API_KEY or not article_text:
+        return None
+    prompt = SUMMARY_PROMPT.format(
+        title=title, article_text=article_text[:ARTICLE_TEXT_LIMIT]
+    )
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    )
+    try:
+        resp = requests.post(
+            url,
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as ex:
+        print(f"[경고] Gemini 요약 실패, 번역으로 대체: {ex}")
+        return None
+
+
+def build_summary(entry, article_text):
+    """Gemini 요약을 우선 시도하고, 실패하면 제목+본문 일부 번역으로 대체한다."""
+    summary = summarize_with_gemini(entry["title"], article_text)
+    if summary:
+        return summary
+
+    title_ko = translate_text(entry["title"])
+    fallback_source = article_text or entry.get("summary", "")
+    body_ko = translate_text(fallback_source[:1000]) if fallback_source else ""
+    parts = [f"🪙 {title_ko}"]
+    if body_ko:
+        parts.append(body_ko)
+    return "\n\n".join(parts)
 
 
 def send_telegram_photo(photo_url, caption):
@@ -186,30 +258,36 @@ def send_telegram_message(text):
 
 
 def post_entry(entry):
-    title_ko = translate_text(entry["title"])
     article_text, image_url = scrape_article(entry["link"])
+    article_text = dedupe_paragraphs(article_text) if article_text else article_text
 
-    if not article_text:
-        article_text = entry.get("summary", "")
+    summary = build_summary(entry, article_text)
 
-    body_ko = translate_long_text(article_text) if article_text else ""
+    lines = summary.split("\n", 1)
+    headline = lines[0].strip()
+    rest = lines[1].strip() if len(lines) > 1 else ""
 
     kst_time = entry["published"].astimezone(KST).strftime("%m/%d %H:%M")
-    header = f"🪙 <b>{html.escape(title_ko)}</b>\n📰 {html.escape(entry['source'])} · {kst_time} (KST)"
+    meta_line = f"📰 {entry['source']} · {kst_time} (KST)"
     footer = f"🔗 원문: {entry['link']}"
+
+    headline_html = f"<b>{html.escape(headline)}</b>"
+    meta_html = html.escape(meta_line)
 
     photo_sent = False
     if image_url:
         try:
-            send_telegram_photo(image_url, header)
+            send_telegram_photo(image_url, f"{headline_html}\n{meta_html}")
             photo_sent = True
             time.sleep(1)
         except Exception as ex:
             print(f"[경고] 이미지 전송 실패, 텍스트로만 진행: {ex}")
 
-    body_full = body_ko if body_ko else "(본문을 가져오지 못했습니다.)"
-    first_chunk_prefix = "" if photo_sent else header + "\n\n"
-    combined = f"{first_chunk_prefix}{body_full}\n\n{footer}"
+    body_html = html.escape(rest) if rest else ""
+    if photo_sent:
+        combined = f"{body_html}\n\n{footer}" if body_html else footer
+    else:
+        combined = f"{headline_html}\n{meta_html}\n\n{body_html}\n\n{footer}"
 
     for chunk in chunk_text(combined, TELEGRAM_TEXT_LIMIT):
         send_telegram_message(chunk)
@@ -221,6 +299,8 @@ def main():
         raise SystemExit(
             "TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 환경변수가 설정되어 있지 않습니다."
         )
+    if not GEMINI_API_KEY:
+        print("[안내] GEMINI_API_KEY가 없어 AI 요약 대신 단순 번역으로 대체됩니다.")
 
     posted_log = load_posted_log()
     posted_links = set(posted_log)
