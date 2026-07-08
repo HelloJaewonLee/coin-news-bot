@@ -27,7 +27,7 @@ RSS_FEEDS = [
     "https://decrypt.co/feed",
 ]
 
-POSTS_PER_RUN = 3
+POSTS_PER_RUN = 1
 STATE_FILE = os.path.join(os.path.dirname(__file__), "posted_log.json")
 MAX_LOG_SIZE = 1000  # 로그 파일이 너무 커지지 않도록 최근 N개만 유지
 TRANSLATE_CHUNK_SIZE = 4000  # 구글 번역 1회 호출 최대 글자 수 여유치
