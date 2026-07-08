@@ -25,6 +25,14 @@ RSS_FEEDS = [
     "https://decrypt.co/feed",
 ]
 
+CRYPTO_KEYWORDS = [
+    "bitcoin", "btc", "ethereum", "eth", "crypto", "cryptocurrency",
+    "blockchain", "defi", "nft", "altcoin", "token", "coin", "stablecoin",
+    "binance", "coinbase", "solana", " sol ", "xrp", "ripple", "dogecoin",
+    "doge", "web3", "wallet", "mining", "satoshi", "memecoin", "staking",
+    "airdrop", "usdt", "usdc", "layer 2", "l2",
+]
+
 POSTS_PER_RUN = 1  # 실행 1회당 1개 기사만 게시 (하루 4번 실행)
 STATE_FILE = os.path.join(os.path.dirname(__file__), "posted_log.json")
 MAX_LOG_SIZE = 1000  # 로그 파일이 너무 커지지 않도록 최근 N개만 유지
@@ -82,10 +90,19 @@ def fetch_all_entries():
     return entries
 
 
+def is_crypto_relevant(entry):
+    text = f"{entry['title']} {entry.get('summary', '')}".lower()
+    return any(kw in text for kw in CRYPTO_KEYWORDS)
+
+
 def select_new_entries(entries, posted_links, n):
     # 가장 최신 기사부터 = 그 시점 기준 가장 화제가 되는 뉴스로 간주
     entries.sort(key=lambda x: x["published"], reverse=True)
-    new_entries = [e for e in entries if e["link"] not in posted_links]
+    new_entries = [
+        e
+        for e in entries
+        if e["link"] not in posted_links and is_crypto_relevant(e)
+    ]
     return new_entries[:n]
 
 
@@ -161,23 +178,43 @@ def translate_text(text):
 
 SUMMARY_PROMPT = """당신은 암호화폐 뉴스 채널의 에디터입니다. 아래 영어 기사를 한국 구독자를 위해 보기 좋게 정리해주세요.
 
-형식(반드시 지켜주세요):
+형식(반드시 지켜주세요, 각 블록 사이는 반드시 빈 줄로 구분):
 1번째 줄: 기사 핵심을 압축한 한국어 헤드라인 (이모지 1개 정도, 15~30자)
-빈 줄
-그 다음: "- "로 시작하는 핵심 포인트 3~5개 (숫자·수치는 정확히 살리기, 각 줄은 1문장)
-빈 줄
-마지막: 배경/맥락 설명 1~2문단 (중복 없이 간결하게, 각 문단은 3문장 이내)
+(빈 줄)
+"- "로 시작하는 핵심 포인트 3~5개, 한 줄에 한 문장씩 (숫자·수치는 정확히 살리기)
+(빈 줄)
+배경/맥락 설명 딱 1문단, 2~3문장 이내로 아주 간결하게
 
 주의사항:
 - 마크다운 기호(*, #, ** 등)는 쓰지 말고 순수 텍스트로만 작성
+- 배경 설명은 여러 문단으로 나누지 말고 반드시 1문단으로만 작성
 - 기사에 같은 내용이 반복돼 있으면 한 번만 언급
 - 광고, 관련기사 목록, 탐색 메뉴 같은 내용은 무시
+- 전체 분량은 700자를 넘기지 않기
 
 기사 제목: {title}
 
 기사 본문:
 {article_text}
 """
+
+
+def normalize_summary(text):
+    """Gemini/번역 결과의 줄바꿈을 정리해 헤드라인-불릿-문단 사이에 빈 줄을 보장한다."""
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not lines:
+        return text
+    output = [lines[0]]
+    prev_is_bullet = None
+    for line in lines[1:]:
+        is_bullet = line.startswith("-") or line.startswith("•")
+        if prev_is_bullet is None:
+            output.append("")
+        elif not (is_bullet and prev_is_bullet):
+            output.append("")
+        output.append(line)
+        prev_is_bullet = is_bullet
+    return "\n".join(output)
 
 
 def summarize_with_gemini(title, article_text):
@@ -208,7 +245,7 @@ def build_summary(entry, article_text):
     """Gemini 요약을 우선 시도하고, 실패하면 제목+본문 일부 번역으로 대체한다."""
     summary = summarize_with_gemini(entry["title"], article_text)
     if summary:
-        return summary
+        return normalize_summary(summary)
 
     title_ko = translate_text(entry["title"])
     fallback_source = article_text or entry.get("summary", "")
@@ -216,7 +253,7 @@ def build_summary(entry, article_text):
     parts = [f"🪙 {title_ko}"]
     if body_ko:
         parts.append(body_ko)
-    return "\n\n".join(parts)
+    return normalize_summary("\n\n".join(parts))
 
 
 def send_telegram_photo(photo_url, caption):
@@ -263,6 +300,7 @@ def post_entry(entry):
 
     summary = build_summary(entry, article_text)
 
+    # 첫 줄은 헤드라인으로 사진 캡션에, 나머지는 본문 메시지에 사용
     lines = summary.split("\n", 1)
     headline = lines[0].strip()
     rest = lines[1].strip() if len(lines) > 1 else ""
