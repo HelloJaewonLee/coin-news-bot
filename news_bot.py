@@ -181,12 +181,14 @@ SUMMARY_PROMPT = """당신은 암호화폐 뉴스 채널의 에디터입니다. 
 형식(반드시 지켜주세요, 각 블록 사이는 반드시 빈 줄로 구분):
 1번째 줄: 기사 핵심을 압축한 한국어 헤드라인 (이모지 1개 정도, 15~30자)
 (빈 줄)
+"뉴스 요약:" 라는 줄 (이 문구를 정확히 그대로 사용, "간단히 말해서" 같은 다른 표현 쓰지 말기)
 "- "로 시작하는 핵심 포인트 3~5개, 한 줄에 한 문장씩 (숫자·수치는 정확히 살리기)
 (빈 줄)
 배경/맥락 설명 딱 1문단, 2~3문장 이내로 아주 간결하게
 
 주의사항:
 - 마크다운 기호(*, #, ** 등)는 쓰지 말고 순수 텍스트로만 작성
+- "뉴스 요약:" 문구를 정확히 그대로 쓰고 다른 인사말이나 전환 문구는 추가하지 말기
 - 배경 설명은 여러 문단으로 나누지 말고 반드시 1문단으로만 작성
 - 기사에 같은 내용이 반복돼 있으면 한 번만 언급
 - 광고, 관련기사 목록, 탐색 메뉴 같은 내용은 무시
@@ -200,20 +202,20 @@ SUMMARY_PROMPT = """당신은 암호화폐 뉴스 채널의 에디터입니다. 
 
 
 def normalize_summary(text):
-    """Gemini/번역 결과의 줄바꿈을 정리해 헤드라인-불릿-문단 사이에 빈 줄을 보장한다."""
+    """Gemini/번역 결과의 줄바꿈을 정리해 헤드라인-요약라벨/불릿-문단 사이에 빈 줄을 보장한다."""
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     if not lines:
         return text
     output = [lines[0]]
-    prev_is_bullet = None
+    prev_group = None  # None, "bullet", "para"
     for line in lines[1:]:
         is_bullet = line.startswith("-") or line.startswith("•")
-        if prev_is_bullet is None:
-            output.append("")
-        elif not (is_bullet and prev_is_bullet):
+        is_label = line.rstrip(":").strip() == "뉴스 요약"
+        group = "bullet" if (is_bullet or is_label) else "para"
+        if prev_group is None or group != prev_group:
             output.append("")
         output.append(line)
-        prev_is_bullet = is_bullet
+        prev_group = group
     return "\n".join(output)
 
 
