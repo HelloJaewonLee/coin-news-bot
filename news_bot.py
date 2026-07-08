@@ -176,7 +176,12 @@ def translate_text(text):
         return text
 
 
-SUMMARY_PROMPT = """당신은 암호화폐 뉴스 채널의 에디터입니다. 아래 영어 기사를 한국 구독자를 위해 보기 좋게 정리해주세요.
+SUMMARY_PROMPT = """당신은 암호화폐 전문 매체에서 5년 넘게 일한 한국인 에디터입니다. 아래 영어 기사를 읽고, 마치 처음부터 한국어로 취재해서 쓴 것처럼 자연스럽게 재구성해주세요.
+
+문체 원칙(중요):
+- 번역투 금지: "~라고 밝혔습니다", "~에 따르면"을 문장마다 반복하지 말고, 사람이 자기 말로 풀어 쓰듯 자연스러운 뉴스체로 작성
+- 영어 문장 구조를 그대로 따라가지 말고, 한국어 어순과 호흡에 맞게 재구성
+- 직역 대신 의미를 파악해서 다시 쓰기 (paraphrase), 문장은 짧고 명확하게
 
 형식(반드시 지켜주세요, 각 블록 사이는 반드시 빈 줄로 구분):
 1번째 줄: 기사 핵심을 압축한 한국어 헤드라인 (이모지 1개 정도, 15~30자)
@@ -191,28 +196,30 @@ SUMMARY_PROMPT = """당신은 암호화폐 뉴스 채널의 에디터입니다. 
 - "뉴스 요약:" 문구를 정확히 그대로 쓰고 다른 인사말이나 전환 문구는 추가하지 말기
 - 배경 설명은 여러 문단으로 나누지 말고 반드시 1문단으로만 작성
 - 기사에 같은 내용이 반복돼 있으면 한 번만 언급
+- 기사가 여러 소식을 모아놓은 다이제스트라면, 그 중 가장 중요한 소식 하나만 골라서 정리
 - 광고, 관련기사 목록, 탐색 메뉴 같은 내용은 무시
 - 전체 분량은 700자를 넘기지 않기
 
 기사 제목: {title}
 
-기사 본문:
+기사 본문(또는 요약):
 {article_text}
 """
 
 
 def normalize_summary(text):
-    """Gemini/번역 결과의 줄바꿈을 정리해 헤드라인-요약라벨/불릿-문단 사이에 빈 줄을 보장한다."""
+    """Gemini/번역 결과의 줄바꿈을 정리해 헤드라인-요약라벨/불릿-문단 사이에 빈 줄을 보장한다.
+    불릿(및 '뉴스 요약:' 라벨)끼리는 붙여서, 그 외 문단은 서로 빈 줄로 구분해서 나열한다."""
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     if not lines:
         return text
     output = [lines[0]]
-    prev_group = None  # None, "bullet", "para"
+    prev_group = None  # None, "list", "para"
     for line in lines[1:]:
         is_bullet = line.startswith("-") or line.startswith("•")
         is_label = line.rstrip(":").strip() == "뉴스 요약"
-        group = "bullet" if (is_bullet or is_label) else "para"
-        if prev_group is None or group != prev_group:
+        group = "list" if (is_bullet or is_label) else "para"
+        if prev_group is None or not (group == "list" and prev_group == "list"):
             output.append("")
         output.append(line)
         prev_group = group
@@ -244,14 +251,16 @@ def summarize_with_gemini(title, article_text):
 
 
 def build_summary(entry, article_text):
-    """Gemini 요약을 우선 시도하고, 실패하면 제목+본문 일부 번역으로 대체한다."""
-    summary = summarize_with_gemini(entry["title"], article_text)
+    """Gemini 요약을 최우선으로 사용한다 (기사 본문이 없으면 RSS 요약이라도 넘겨서 Gemini가 자연스럽게 정리하게 함).
+    Gemini API 자체가 실패했을 때만 최후의 수단으로 기계번역을 사용한다."""
+    source_text = article_text or entry.get("summary", "") or entry["title"]
+    summary = summarize_with_gemini(entry["title"], source_text)
     if summary:
         return normalize_summary(summary)
 
+    print("[안내] Gemini 사용 불가로 기계번역 대체본을 사용합니다.")
     title_ko = translate_text(entry["title"])
-    fallback_source = article_text or entry.get("summary", "")
-    body_ko = translate_text(fallback_source[:1000]) if fallback_source else ""
+    body_ko = translate_text(source_text[:1000]) if source_text else ""
     parts = [f"🪙 {title_ko}"]
     if body_ko:
         parts.append(body_ko)
