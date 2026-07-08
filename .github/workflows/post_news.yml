@@ -1,11 +1,12 @@
 name: Post Coin News to Telegram
 
 on:
-  schedule:
-    # KST 기준 08:00 / 13:00 / 22:00 (UTC로 환산: 23:00 전날 / 04:00 / 13:00)
-    - cron: "0 23 * * *"
-    - cron: "0 4 * * *"
-    - cron: "0 13 * * *"
+schedule:
+    # KST 기준 09:00 / 12:00 / 16:00 / 21:00 (UTC로 환산: 00:00 / 03:00 / 07:00 / 12:00)
+    - cron: "0 0 * * *"
+    - cron: "0 3 * * *"
+    - cron: "0 7 * * *"
+    - cron: "0 12 * * *"
   workflow_dispatch: {}  # Actions 탭에서 수동 실행 버튼도 사용 가능
 
 permissions:
