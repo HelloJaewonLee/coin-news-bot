@@ -1,7 +1,7 @@
 name: Post Coin News to Telegram
 
 on:
-schedule:
+  schedule:
     # KST 기준 09:00 / 12:00 / 16:00 / 21:00 (UTC로 환산: 00:00 / 03:00 / 07:00 / 12:00)
     - cron: "0 0 * * *"
     - cron: "0 3 * * *"
