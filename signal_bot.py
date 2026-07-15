@@ -19,6 +19,35 @@ WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
+# 매일 하나씩 순서대로 돌아가며 사용하는 마무리 문구 (20개, 식상함 방지)
+CLOSING_LINES = [
+    "오늘도 무리하지 않게, 안전 제일로 갑니다 💪",
+    "급할수록 돌아가기, 오늘도 여유 있게 가시죠 🙂",
+    "무리한 매매보다 원칙을 지키는 하루 되세요 📈",
+    "시장은 늘 열려있어요, 서두르지 마세요 ⏳",
+    "오늘 하루도 리스크 관리 잊지 마세요 🛡️",
+    "흔들리지 않는 투자, 오늘도 함께해요 🧭",
+    "작은 이익도 소중히, 큰 손실은 조심히 💼",
+    "조급함은 손실의 지름길, 천천히 가요 🐢",
+    "오늘도 내 페이스대로 갑니다 🚶",
+    "계획한 대로, 오늘 하루도 흔들림 없이 📊",
+    "시장보다 내 원칙이 먼저입니다 ✅",
+    "쉬어가는 것도 전략입니다, 오늘 하루 편안하게 ☕",
+    "벌 때보다 지킬 때가 진짜 실력이죠 🔒",
+    "오늘도 무너지지 않는 멘탈로 갑니다 🧠",
+    "급등락에 흔들리지 않는 하루 되세요 🌊",
+    "원칙 있는 투자자가 결국 웃습니다 😌",
+    "오늘 하루도 안전벨트 단단히 매세요 🎢",
+    "조급한 마음은 잠시 내려두세요 🍵",
+    "꾸준함이 결국 답입니다, 오늘도 화이팅 🔥",
+    "천천히, 그러나 꾸준하게 가는 하루 되세요 🌱",
+]
+
+
+def pick_closing_line(now_kst):
+    idx = now_kst.timetuple().tm_yday % len(CLOSING_LINES)
+    return CLOSING_LINES[idx]
+
 # Binance 공개 시세 전용 도메인 (지역 제한 없이 시세 데이터만 제공)
 BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
@@ -94,12 +123,15 @@ def build_message(btc_price, btc_change, eth_price, eth_change):
         f"{format_change(eth_change)}   · {comment_for_change(eth_change)}"
     )
 
+    quote_block = (
+        f"<blockquote>{html.escape(btc_line)}\n{html.escape(eth_line)}</blockquote>"
+    )
+
     return (
         f"📊 <b>BTC 직장인 데일리 브리핑</b>\n"
         f"{html.escape(date_str)} KST\n\n"
-        f"{html.escape(btc_line)}\n"
-        f"{html.escape(eth_line)}\n\n"
-        f"오늘도 무리하지 않게, 안전 제일로 갑니다 💪"
+        f"{quote_block}\n\n"
+        f"{html.escape(pick_closing_line(now_kst))}"
     )
 
 
