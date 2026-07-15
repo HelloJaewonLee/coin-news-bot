@@ -89,6 +89,9 @@ def select_new_headlines(items, posted_links, n):
     return result
 
 
+CAPTION_LIMIT = 1024  # 텔레그램 영상/사진 캡션 최대 글자 수
+
+
 def build_message(headlines):
     now_kst = datetime.now(KST)
     weekday = WEEKDAY_KR[now_kst.weekday()]
@@ -102,21 +105,39 @@ def build_message(headlines):
     return "\n".join(lines)
 
 
-def send_telegram_intro_video():
+def build_caption(headlines):
+    """영상 캡션 글자수 제한(1024자)에 맞을 때까지 헤드라인을 줄여서 메시지를 만든다."""
+    items = list(headlines)
+    while True:
+        msg = build_message(items)
+        if len(msg) <= CAPTION_LIMIT or not items:
+            return msg
+        items = items[:-1]
+
+
+def send_telegram_video_with_caption(caption):
+    """영상 + 한 줄 뉴스를 한 메시지로 함께 전송. 영상 파일이 없으면 False 반환."""
     if not os.path.exists(INTRO_VIDEO_PATH):
-        return
+        return False
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
     with open(INTRO_VIDEO_PATH, "rb") as f:
         resp = requests.post(
             url,
-            data={"chat_id": CHAT_ID, "supports_streaming": True},
+            data={
+                "chat_id": CHAT_ID,
+                "supports_streaming": True,
+                "caption": caption,
+                "parse_mode": "HTML",
+            },
             files={"video": ("btc_jikjangin_real.mp4", f, "video/mp4")},
             timeout=60,
         )
     resp.raise_for_status()
     result = resp.json()
     if not result.get("ok"):
-        print(f"[경고] 인트로 영상 전송 실패: {result}")
+        print(f"[경고] 영상+뉴스 전송 실패: {result}")
+        return False
+    return True
 
 
 def send_telegram_message(text):
@@ -154,9 +175,11 @@ def main():
         print("최근 새 기사가 없어 이번 회차는 건너뜁니다.")
         return
 
-    send_telegram_intro_video()
-    message = build_message(headlines)
-    send_telegram_message(message)
+    caption = build_caption(headlines)
+    sent_together = send_telegram_video_with_caption(caption)
+    if not sent_together:
+        # 영상이 없거나 실패한 경우, 텍스트만이라도 전송
+        send_telegram_message(build_message(headlines))
 
     for h in headlines:
         log.append(h["link"])
