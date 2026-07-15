@@ -1,0 +1,41 @@
+name: Post Headlines to Telegram
+
+on:
+  schedule:
+    # KST 08:00 = UTC 23:00 (전날)
+    - cron: "0 23 * * *"
+    # KST 20:00 = UTC 11:00
+    - cron: "0 11 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  post-headlines:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 라이브러리 설치
+        run: pip install -r requirements-headlines.txt
+
+      - name: 한 줄 뉴스 게시 실행
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python headlines_bot.py
+
+      - name: 게시 기록(headline_log.json) 저장
+        run: |
+          git config user.name "coin-news-bot"
+          git config user.email "actions@github.com"
+          git add headline_log.json
+          git diff --quiet --cached || git commit -m "update headline log"
+          git push
