@@ -101,7 +101,7 @@ def build_message(headlines):
     for item in headlines:
         title = html.escape(item["title"])
         link = html.escape(item["link"], quote=True)
-        lines.append(f"▪ <a href=\"{link}\">{title}</a>")
+        lines.append(f"🔸 <a href=\"{link}\">{title}</a>")
         lines.append("")  # 항목 사이 빈 줄
     return "\n".join(lines).rstrip()
 
