@@ -97,19 +97,12 @@ def build_message(headlines):
     weekday = WEEKDAY_KR[now_kst.weekday()]
     date_str = now_kst.strftime(f"%y년 %m월 %d일 {weekday}")
 
-    header = f"💌 <b>{html.escape(date_str)} 한 줄 뉴스</b>"
-
-    item_lines = []
+    lines = [f"💌 <b>{html.escape(date_str)} 한 줄 뉴스</b>", ""]
     for item in headlines:
         title = html.escape(item["title"])
         link = html.escape(item["link"], quote=True)
-        item_lines.append(f"▪ <a href=\"{link}\">{title}</a>")
-
-    if not item_lines:
-        return header
-
-    quote_block = "<blockquote>" + "\n".join(item_lines) + "</blockquote>"
-    return f"{header}\n\n{quote_block}"
+        lines.append(f"▪ <a href=\"{link}\">{title}</a>")
+    return "\n".join(lines)
 
 
 def build_caption(headlines):
