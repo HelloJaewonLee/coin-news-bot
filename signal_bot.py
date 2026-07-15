@@ -18,6 +18,7 @@ WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+INTRO_VIDEO_PATH = os.path.join(os.path.dirname(__file__), "btc_jikjangin_real.mp4")
 
 # 매일 하나씩 순서대로 돌아가며 사용하는 마무리 문구 (20개, 식상함 방지)
 CLOSING_LINES = [
@@ -149,6 +150,31 @@ def send_telegram_message(text):
     return result
 
 
+def send_telegram_video_with_caption(caption):
+    """영상 + 브리핑을 한 메시지로 함께 전송. 영상 파일이 없으면 False 반환."""
+    if not os.path.exists(INTRO_VIDEO_PATH):
+        return False
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
+    with open(INTRO_VIDEO_PATH, "rb") as f:
+        resp = requests.post(
+            url,
+            data={
+                "chat_id": CHAT_ID,
+                "supports_streaming": True,
+                "caption": caption,
+                "parse_mode": "HTML",
+            },
+            files={"video": ("btc_jikjangin_real.mp4", f, "video/mp4")},
+            timeout=60,
+        )
+    resp.raise_for_status()
+    result = resp.json()
+    if not result.get("ok"):
+        print(f"[경고] 영상+브리핑 전송 실패: {result}")
+        return False
+    return True
+
+
 def main():
     if not BOT_TOKEN or not CHAT_ID:
         raise SystemExit(
@@ -159,8 +185,10 @@ def main():
     eth_price, eth_change = fetch_price("ETHUSDT")
 
     message = build_message(btc_price, btc_change, eth_price, eth_change)
-    send_telegram_message(message)
-    print("출근 시그널 게시 완료")
+    sent_together = send_telegram_video_with_caption(message)
+    if not sent_together:
+        send_telegram_message(message)
+    print("데일리 브리핑 게시 완료")
 
 
 if __name__ == "__main__":
