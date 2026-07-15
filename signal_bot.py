@@ -1,6 +1,6 @@
 """
-아침 시그널(출근) 텔레그램 봇
-- 바이낸스 공개 시세 API로 BTC/ETH 현재가 + 24시간 등락률을 가져와 정해진 템플릿으로 게시
+데일리 마켓 브리핑 텔레그램 봇
+- 바이낸스 공개 시세 API로 BTC/ETH 현재가 + 24시간 등락률을 가져와 깔끔한 브리핑 형태로 게시
 - 하루 1번(09:00 KST) 실행 권장
 - 실행: python signal_bot.py
   필요 환경변수: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
@@ -8,8 +8,13 @@
 
 import os
 import random
+import html
+from datetime import datetime, timezone, timedelta
 
 import requests
+
+KST = timezone(timedelta(hours=9))
+WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -18,11 +23,11 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
 COMMENTS = {
-    "strong_up": ["🔥 오늘 컨디션 최고", "🔥 강한 상승세", "🔥 분위기 좋음"],
-    "up": ["기분 좋게 출발", "완만한 상승", "순항 중"],
-    "flat": ["눈치보는 중", "보합권 유지", "숨고르기"],
-    "down": ["잠시 조정 중", "완만한 하락", "관망 필요"],
-    "strong_down": ["⚠️ 조심스러운 하루", "⚠️ 변동성 주의", "⚠️ 급락 조정 중"],
+    "strong_up": ["강한 상승세", "뚜렷한 반등", "매수세 우위"],
+    "up": ["완만한 상승", "순항 중", "안정적 흐름"],
+    "flat": ["보합권 유지", "관망 우세", "박스권 흐름"],
+    "down": ["완만한 조정", "차익 실현 흐름", "관망 필요"],
+    "strong_down": ["변동성 확대", "급락 조정", "리스크 관리 필요"],
 }
 
 
@@ -71,17 +76,30 @@ def format_price(price):
     return f"{price:,.0f}"
 
 
+def format_change(change_pct):
+    return f"{change_pct:+.2f}%"
+
+
 def build_message(btc_price, btc_change, eth_price, eth_change):
+    now_kst = datetime.now(KST)
+    weekday = WEEKDAY_KR[now_kst.weekday()]
+    date_str = now_kst.strftime(f"%y.%m.%d({weekday}) %H:%M")
+
+    btc_line = (
+        f"🟠 비트코인   {format_price(btc_price)} USD   "
+        f"{format_change(btc_change)}   · {comment_for_change(btc_change)}"
+    )
+    eth_line = (
+        f"🔷 이더리움   {format_price(eth_price)} USD   "
+        f"{format_change(eth_change)}   · {comment_for_change(eth_change)}"
+    )
+
     return (
-        "🌅🌅🌅🌅🌅🌅🌅🌅🌅🌅\n"
-        "👷 BTCWORKMAN 출근했습니다\n"
-        "#Gate X #OrangeX X #Tapbit\n"
-        "🌅🌅🌅🌅🌅🌅🌅🌅🌅🌅\n"
-        "📊 오늘 시장 상황\n\n"
-        f"🟠 비트코인 : {format_price(btc_price)} ({comment_for_change(btc_change)})\n"
-        f"🔷 이더리움 : {format_price(eth_price)} ({comment_for_change(eth_change)})\n\n"
-        "📱 시그널 알림 켜두세요!\n"
-        "오늘도 안전제일로 갑니다 💪"
+        f"📊 <b>BTC 직장인 데일리 브리핑</b>\n"
+        f"{html.escape(date_str)} KST\n\n"
+        f"{html.escape(btc_line)}\n"
+        f"{html.escape(eth_line)}\n\n"
+        f"오늘도 무리하지 않게, 안전 제일로 갑니다 💪"
     )
 
 
@@ -89,7 +107,7 @@ def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     resp = requests.post(
         url,
-        data={"chat_id": CHAT_ID, "text": text},
+        data={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"},
         timeout=20,
     )
     resp.raise_for_status()
