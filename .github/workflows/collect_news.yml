@@ -1,0 +1,46 @@
+name: Collect News Candidates
+
+on:
+  schedule:
+    # 매시간 3분 (KST 07:03 ~ 23:03). UTC 22~23시 = KST 07~08시, UTC 0~14시 = KST 09~23시
+    - cron: "3 22-23 * * *"
+    - cron: "3 0-14 * * *"
+  push:
+    branches: [main]
+    paths: ["collect_news.py", "news_common.py"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: news-repo-write
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 라이브러리 설치
+        run: pip install -r requirements-news.txt
+
+      - name: 기사 후보 수집
+        run: python collect_news.py
+
+      - name: 후보 목록(candidates.json) 저장
+        run: |
+          git config user.name "coin-news-bot"
+          git config user.email "actions@github.com"
+          git add candidates.json
+          git diff --quiet --cached && exit 0
+          git commit -m "update news candidates"
+          git pull --rebase origin main
+          git push
