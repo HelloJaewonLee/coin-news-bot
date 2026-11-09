@@ -1,11 +1,11 @@
-name: Post Headlines to Telegram
+name: Post Headlines to Telegram (예약 꺼짐)
 
+# 2026-11 엄선 뉴스(post_news.yml)로 대체되어 자동 실행을 껐어요.
+# 다시 켜려면 아래 schedule 두 줄의 주석(#)을 지우면 돼요.
 on:
-  schedule:
-    # KST 08:00 = UTC 23:00 (전날)
-    - cron: "0 23 * * *"
-    # KST 20:00 = UTC 11:00
-    - cron: "0 11 * * *"
+  # schedule:
+  #   - cron: "0 23 * * *"   # KST 08:00
+  #   - cron: "0 11 * * *"   # KST 20:00
   workflow_dispatch: {}
 
 permissions:

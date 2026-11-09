@@ -1,0 +1,61 @@
+name: Post Curated News to Telegram
+
+on:
+  schedule:
+    # 매시간 17분에 실행 (KST 08:17 ~ 23:17). 올릴지 말지는 news_bot.py가 판단해요.
+    # UTC 23시 = KST 08시, UTC 0~14시 = KST 09~23시
+    - cron: "17 23 * * *"
+    - cron: "17 0-14 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "테스트: 텔레그램에 보내지 않고 쓴 글만 로그로 보기"
+        type: boolean
+        default: true
+      force:
+        description: "시간·간격 조건 무시하고 지금 한 건 시도"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: news-bot
+  cancel-in-progress: false
+
+jobs:
+  post-news:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 라이브러리 설치
+        run: pip install -r requirements-news.txt
+
+      - name: 엄선 뉴스 게시
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force && '1' || '' }}
+        run: python news_bot.py
+
+      - name: 게시 기록(news_log.json) 저장
+        if: always()
+        run: |
+          [ -f news_log.json ] || exit 0
+          git config user.name "coin-news-bot"
+          git config user.email "actions@github.com"
+          git add news_log.json
+          git diff --quiet --cached && exit 0
+          git commit -m "update news log"
+          git pull --rebase origin ${{ github.ref_name }}
+          git push
