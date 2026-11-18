@@ -1,0 +1,52 @@
+name: Post Ripple Daily to Work Room
+
+# 리플 데일리(사진 + 카톡 문구)를 텔레그램 업무 정보방에 오전 11시에 올린다.
+# Claude 예약 작업이 ripple_daily/outbox/에 오늘 세트를 넣으면 바로 실행되고,
+# 11시 전이면 11시까지 기다렸다가 올린다. 혹시 놓친 경우 11:10에 한 번 더 확인한다.
+on:
+  push:
+    branches: [main]
+    paths: ["ripple_daily/outbox/*.json"]
+  schedule:
+    - cron: "10 2 * * *"   # KST 11:10
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ripple-daily
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 라이브러리 설치
+        run: pip install requests==2.32.3
+
+      - name: 리플 데일리 게시
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WORK_CHAT_ID: ${{ secrets.TELEGRAM_WORK_CHAT_ID }}
+        run: python ripple_daily/post_ripple_daily.py
+
+      - name: 게시 기록 저장
+        if: always()
+        run: |
+          git config user.name "coin-news-bot"
+          git config user.email "actions@github.com"
+          git add -A ripple_daily
+          git diff --quiet --cached && exit 0
+          git commit -m "ripple daily: post to work room"
+          for i in 1 2 3; do git pull --rebase origin main && git push && exit 0; sleep 5; done
+          exit 1
