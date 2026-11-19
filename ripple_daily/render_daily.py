@@ -5,6 +5,9 @@ Usage:
 
 Exit codes: 0 = OK, 3 = 내용이 넘침(OVERFLOW) -> 글을 줄여서 다시 실행, 2 = 입력 오류.
 
+Price: normally price.krw/high_krw/low_krw (Upbit). If Upbit is unavailable, give price.usd/high_usd/low_usd
+instead (Crypto.com) and leave out krw in price and in levels.cells — the image then shows dollars.
+
 Text fields accept **굵게** markup: in top.body it becomes red bold, in items[].title it becomes red.
 Everything else is HTML-escaped.
 """
@@ -82,18 +85,27 @@ def build(c, logo_src):
     sched = "".join(f'<div><b>{esc(s["date"])}</b><span>{esc(s["title"])}</span><small>{esc(s["sub"])}</small></div>'
                     for s in c["schedule"])
     lv = c["levels"]
+    def cell_value(x):  # 원화가 있으면 원화 크게 + 달러 작게, 없으면(업비트 시세 대체 모드) 달러만 크게
+        if x.get("krw") is not None:
+            return f'<b>{won(x["krw"])}원</b>' + (f'<i>{esc(x["usd"])}</i>' if x.get("usd") else "")
+        return f'<b>{esc(x["usd"])}</b>'
     cells = "".join(
-        f'<div class="cell{" main" if x.get("main") else ""}"><span>{esc(x["label"])}</span>'
-        f'<b>{won(x["krw"])}원</b>' + (f'<i>{esc(x["usd"])}</i>' if x.get("usd") else "") + '</div>'
+        f'<div class="cell{" main" if x.get("main") else ""}"><span>{esc(x["label"])}</span>{cell_value(x)}</div>'
         for x in lv["cells"])
+    if p.get("krw") is not None:   # 기본: 업비트 원화 시세
+        price_html = (f'<div class="lab">리플 지금 가격 · 업비트</div><div class="won">{won(p["krw"])}<small>원</small></div>',
+                      f'어제보다<br>최고 <b>{won(p["high_krw"])}원</b> · 최저 <b>{won(p["low_krw"])}원</b>')
+    else:                          # 대체: 업비트 시세를 못 받은 날 — Crypto.com 달러 시세
+        price_html = (f'<div class="lab">리플 지금 가격 · 달러 기준</div><div class="won">{float(p["usd"]):.3f}<small>달러</small></div>',
+                      f'24시간 기준<br>최고 <b>{float(p["high_usd"]):.3f}</b> · 최저 <b>{float(p["low_usd"]):.3f}</b>')
     note = "<br>".join(esc(x) for x in lv.get("note_lines", []))
     return f"""<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><style>{CSS}</style></head>
 <body><div class="paper">
   <div class="mast"><img src="{logo_src}" alt=""><h1 class="serif">리플 <b>데일리</b></h1>
     <div class="d">{esc(c["date_label"])}<br>{esc(c["weekday"])}</div></div>
-  <div class="price"><div><div class="lab">리플 지금 가격 · 업비트</div><div class="won">{won(p["krw"])}<small>원</small></div></div>
+  <div class="price"><div>{price_html[0]}</div>
     <div class="right"><div class="chg {cls}">{arrow} {abs(chg):.1f}%</div>
-      <div class="sub">어제보다<br>최고 <b>{won(p["high_krw"])}원</b> · 최저 <b>{won(p["low_krw"])}원</b></div></div></div>
+      <div class="sub">{price_html[1]}</div></div></div>
   <div class="top"><span class="tag">{esc(top.get("tag", "오늘의 큰 소식"))}</span>
     <h2 class="serif">{h2}</h2><p>{mark(top["body"], "strong")}</p></div>
   <div class="sec"><h4>📰 한눈에 보는 소식</h4>{items}</div>
@@ -109,6 +121,9 @@ def main():
     c = json.load(open(sys.argv[1], encoding="utf-8"))
     for k in ["date_label", "weekday", "price", "top", "items", "schedule", "levels", "asof", "sources"]:
         if k not in c: print(f"입력 오류: '{k}' 없음"); sys.exit(2)
+    p = c["price"]
+    if p.get("krw") is None and p.get("usd") is None:
+        print("입력 오류: price에 krw(업비트 원화) 또는 usd(대체 달러 시세)가 있어야 함"); sys.exit(2)
     if len(c["items"]) != 3 or len(c["schedule"]) != 2 or len(c["levels"]["cells"]) != 3 or len(c["top"]["headline_lines"]) > 2:
         print("입력 오류: items 3개, schedule 2개, levels.cells 3개, headline_lines 최대 2줄이어야 함"); sys.exit(2)
     logo = Image.open(sys.argv[2]); logo.thumbnail((400, 400), Image.LANCZOS)

@@ -17,7 +17,11 @@ Claude가 하는 일은 **자료 수집 → content.json + 문구 작성 → 사
   - 원화 환산 기준 = KRW-USDT `trade_price` (예: 1,355원 = 1달러)
 - 달러 가격: Crypto.com `get_ticker` (`XRP_USDT`)의 `last`
 - 7일 범위가 필요할 때: `https://api.upbit.com/v1/candles/days?market=KRW-XRP&count=7`
-- `asof` = 업비트 시세를 받은 한국시간 (예: "11/19 오전 10시 42분 기준")
+- `asof` = 업비트 시세를 받은 한국시간, 짧게 (예: "11/19 10:42 기준" — 길면 맨 아래 줄이 두 줄로 끊김)
+- **업비트 시세를 못 받은 날 (WebFetch 거절·실패)**: 멈추지 말고 달러 대체 모드로 만든다.
+  - `price` = {"usd": Crypto.com `last`, "high_usd": `high`, "low_usd": `low`, "change_pct": `change` × 100} (krw 필드는 넣지 않음)
+  - `levels.cells`는 krw를 빼고 `usd`만 ("1.00달러"처럼), `note_lines` 둘째 줄 = "오늘은 업비트 시세를 받지 못해 달러 기준으로 보여드려요"
+  - 카톡 문구의 숫자도 달러로 쓴다. 렌더러가 알아서 달러 화면으로 바꿔준다.
 
 ## 2. 뉴스 고르기
 
